@@ -191,7 +191,7 @@ export function StageCanvas({ members, formation, selectedMemberId, onSelectMemb
   }, [isFullscreen]);
 
   // Grid lines
-  const gridLines: JSX.Element[] = [];
+  const gridLines = [];
   if (showGrid) {
     for (let gx = 0; gx <= stageW; gx += PX_PER_M) {
       gridLines.push(<line key={`v${gx}`} x1={gx} y1={0} x2={gx} y2={stageH} stroke="rgba(108,58,237,0.1)" strokeWidth={0.5} />);

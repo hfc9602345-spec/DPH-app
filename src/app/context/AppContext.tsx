@@ -1,5 +1,5 @@
 import { supabase } from "../lib/supabase";
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, ReactNode } from "react";
 
 // ─── Types (Firebase-ready structures) ───────────────────────────────────────
 
@@ -464,36 +464,55 @@ const AppContext = createContext<AppContextType | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
 
-   const API_BASE_URL = "http://localhost:8000";
-  async function fetchProjects() {
-  const res = await fetch(`${API_BASE_URL}/projects`);
+   const API_BASE_URL = import.meta.env.VITE_API_URL;
+console.log("API_BASE_URL =", API_BASE_URL);
+console.log("SUPABASE_URL =", import.meta.env.VITE_SUPABASE_URL);
+console.log("SUPABASE_KEY =", import.meta.env.VITE_SUPABASE_ANON_KEY);
+
+async function getAuthHeaders() {
+  const { 
+    data: { session},
+   } = await supabase.auth.getSession();
+  
+  console.log("SESSION:", session);
+
+  const token = session?.access_token;
+
+  console.log("TOKEN =", token);
+
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
+  };
+}
+
+async function fetchProjects() {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE_URL}/projects`, { headers });
   const data = await res.json();
   setProjects(data);
 }
 
 async function fetchNotices() {
-  const res = await fetch(`${API_BASE_URL}/notices`);
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE_URL}/notices`, { headers });
   const data = await res.json();
   setNotices(data);
 }
 
 async function fetchScheduleEvents() {
-  const res = await fetch(`${API_BASE_URL}/schedule-events`);
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE_URL}/schedule-events`, { headers });
   const data = await res.json();
   setScheduleEvents(data);
 }
 
 async function fetchQnaPosts() {
-  const res = await fetch(`${API_BASE_URL}/qna-posts`);
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE_URL}/qna-posts`, { headers });
   const data = await res.json();
   setQnaPosts(data);
 }
-useEffect(() => {
-  fetchProjects();
-  fetchNotices();
-  fetchScheduleEvents();
-  fetchQnaPosts();
-}, []);
 
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -503,6 +522,62 @@ useEffect(() => {
   const [notices, setNotices] = useState<Notice[]>([]);
   const [scheduleEvents, setScheduleEvents] = useState<ScheduleEvent[]>([]);
   const [qnaPosts, setQnaPosts] = useState<QnAPost[]>([]);
+
+  useEffect(() => {
+  const setUserFromSession = (session: any) => {
+    console.log("setUserFromSession 호출", session);
+    
+    const user = session?.user;
+
+    if (!user) {
+      setCurrentUser(null);
+      return;
+    }
+
+    setCurrentUser({
+      uid: user.id,
+      name:
+        user.user_metadata?.full_name ||
+        user.user_metadata?.name ||
+        user.email?.split("@")[0] ||
+        "사용자",
+      email: user.email || "",
+      avatarColor: "#6C3AED",
+      profileImage: user.user_metadata?.avatar_url,
+    });
+  };
+
+  supabase.auth.getSession().then(({ data }) => {
+    console.log("초기 세션=", data.session);
+    setUserFromSession(data.session);
+  });
+
+  const {
+    data: { subscription },
+  } = supabase.auth.onAuthStateChange((event, session) => {
+    console.log("EVENT:", event);
+    console.log("SESSION:", session);
+
+    setUserFromSession(session);
+
+    if(event === "SIGNED_IN"&& session?.user){
+      window.location.href = "/projects";
+    }
+  });
+  
+
+  return () => {
+    subscription.unsubscribe();
+  };
+}, []);
+useEffect(() => {
+  if (!currentUser) return;
+
+  fetchProjects();
+  fetchNotices();
+  fetchScheduleEvents();
+  fetchQnaPosts();
+}, [currentUser]);
 
   async function login(email: string, password: string): Promise<boolean> {
   const { data, error } = await supabase.auth.signInWithPassword({
@@ -529,12 +604,15 @@ useEffect(() => {
   return true;
 }
     async function loginWithGoogle(): Promise<void> {
-  await supabase.auth.signInWithOAuth({
+  const { error } = await supabase.auth.signInWithOAuth({
     provider: "google",
     options: {
-      redirectTo: window.location.origin,
+        redirectTo: window.location.origin,
     },
   });
+  if (error) {
+    console.error("구글 로그인 실패:", error.message);
+  }
 }
 
   async function register(name: string, email: string, password: string) {
@@ -551,7 +629,8 @@ useEffect(() => {
     }
   }
 
-  function logout() {
+  async function logout() {
+    await supabase.auth.signOut();
     setCurrentUser(null);
   }
 
